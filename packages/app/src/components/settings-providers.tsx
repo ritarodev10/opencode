@@ -72,12 +72,17 @@ export const SettingsProviders: Component = () => {
   const note = (id: string) => PROVIDER_NOTES.find((item) => item.match(id))?.key
 
   const isConfigCustom = (providerID: string) => {
-    const provider = globalSync.data.config.provider?.[providerID]
+    const provider = globalSync.data.config.provider?.[providerID] as
+      | { auth_provider?: string; npm?: string; models?: Record<string, unknown> }
+      | undefined
     if (!provider) return false
+    if (provider.auth_provider) return true
     if (provider.npm !== "@ai-sdk/openai-compatible") return false
     if (!provider.models || Object.keys(provider.models).length === 0) return false
     return true
   }
+
+  const hasCopilot = createMemo(() => providers.all().some((item) => item.id === "github-copilot"))
 
   const disableProvider = async (providerID: string, name: string) => {
     const before = globalSync.data.config.disabled_providers ?? []
@@ -241,6 +246,31 @@ export const SettingsProviders: Component = () => {
                 {language.t("common.connect")}
               </Button>
             </div>
+
+            <Show when={hasCopilot()}>
+              <div class="flex items-center justify-between gap-4 min-h-16 border-b border-border-weak-base last:border-none flex-wrap py-3">
+                <div class="flex flex-col min-w-0">
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <ProviderIcon id="github-copilot" class="size-5 shrink-0 icon-strong-base" />
+                    <span class="text-14-medium text-text-strong">GitHub Copilot (extra account)</span>
+                    <Tag>{language.t("settings.providers.tag.custom")}</Tag>
+                  </div>
+                  <span class="text-12-regular text-text-weak pl-8">
+                    Create a second Copilot provider and sign in with another GitHub account.
+                  </span>
+                </div>
+                <Button
+                  size="large"
+                  variant="secondary"
+                  icon="plus-small"
+                  onClick={() => {
+                    dialog.show(() => <DialogCustomProvider back="close" template="github-copilot" />)
+                  }}
+                >
+                  {language.t("common.connect")}
+                </Button>
+              </div>
+            </Show>
           </div>
 
           <Button

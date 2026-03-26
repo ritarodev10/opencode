@@ -1,3 +1,7 @@
+---
+feature: thumbnails/external/21a56739ffc64419ae3ed08b322991a1.svg
+thumbnail: thumbnails/external/21a56739ffc64419ae3ed08b322991a1.svg
+---
 # Starlight Starter Kit: Basics
 
 [![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)

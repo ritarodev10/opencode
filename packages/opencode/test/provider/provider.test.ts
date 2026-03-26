@@ -1,10 +1,15 @@
-import { test, expect } from "bun:test"
+import { afterEach, test, expect } from "bun:test"
 import path from "path"
 
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { Env } from "../../src/env"
+import { Auth } from "../../src/auth"
+
+afterEach(async () => {
+  await Auth.remove("github-copilot-work")
+})
 
 test("provider loaded from env variable", async () => {
   await using tmp = await tmpdir({
@@ -245,6 +250,47 @@ test("custom provider with npm package", async () => {
       expect(providers["custom-provider"]).toBeDefined()
       expect(providers["custom-provider"].name).toBe("Custom Provider")
       expect(providers["custom-provider"].models["custom-model"]).toBeDefined()
+    },
+  })
+})
+
+test("custom provider can reuse auth_provider loader", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "github-copilot-work": {
+              name: "GitHub Copilot Work",
+              auth_provider: "github-copilot",
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Auth.set("github-copilot-work", {
+    type: "oauth",
+    refresh: "gho_test_refresh",
+    access: "gho_test_access",
+    expires: 0,
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      expect(providers["github-copilot-work"]).toBeDefined()
+      expect(providers["github-copilot-work"].options.apiKey).toBe("")
+      expect(providers["github-copilot-work"].options.baseURL).toBe("https://api.githubcopilot.com")
+      expect(typeof providers["github-copilot-work"].options.fetch).toBe("function")
+
+      const model = await Provider.getModel("github-copilot-work", "gpt-5")
+      const language = await Provider.getLanguage(model)
+      expect(language).toBeDefined()
     },
   })
 })

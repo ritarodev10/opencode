@@ -1,3 +1,7 @@
+---
+feature: Projects/coding-agent-hunt/opencode-fork/packages/web/src/assets/lander/screenshot.png
+thumbnail: thumbnails/resized/ae7628856e19c5ec9e913e1811a7dc4b_86cf658e.webp
+---
 <p align="center">
   <a href="https://opencode.ai">
     <picture>

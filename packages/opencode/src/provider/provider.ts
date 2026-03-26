@@ -44,6 +44,7 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers"
 import { GoogleAuth } from "google-auth-library"
 import { ProviderTransform } from "./transform"
 import { Installation } from "../installation"
+import { aliases, driver } from "./auth-alias"
 
 export namespace Provider {
   const log = Log.create({ service: "provider" })
@@ -810,13 +811,19 @@ export namespace Provider {
     // extend database from config
     for (const [providerID, provider] of configProviders) {
       const existing = database[providerID]
+      const source = provider.auth_provider ? database[driver(config, providerID)] : undefined
       const parsed: Info = {
         id: providerID,
-        name: provider.name ?? existing?.name ?? providerID,
-        env: provider.env ?? existing?.env ?? [],
-        options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
+        name: provider.name ?? existing?.name ?? source?.name ?? providerID,
+        env: provider.env ?? existing?.env ?? source?.env ?? [],
+        options: mergeDeep(source?.options ?? existing?.options ?? {}, provider.options ?? {}),
         source: "config",
-        models: existing?.models ?? {},
+        models: source?.models
+          ? mapValues(source.models, (model) => ({
+              ...model,
+              providerID,
+            }))
+          : existing?.models ?? {},
       }
 
       for (const [modelID, model] of Object.entries(provider.models ?? {})) {
@@ -826,6 +833,7 @@ export namespace Provider {
           if (model.id && model.id !== modelID) return modelID
           return existingModel?.name ?? modelID
         })
+        const isAnthropic = providerID === "anthropic" || provider.npm === "@ai-sdk/anthropic"
         const parsedModel: Model = {
           id: modelID,
           api: {
@@ -849,9 +857,9 @@ export namespace Provider {
             input: {
               text: model.modalities?.input?.includes("text") ?? existingModel?.capabilities.input.text ?? true,
               audio: model.modalities?.input?.includes("audio") ?? existingModel?.capabilities.input.audio ?? false,
-              image: model.modalities?.input?.includes("image") ?? existingModel?.capabilities.input.image ?? false,
+              image: model.modalities?.input?.includes("image") ?? existingModel?.capabilities.input.image ?? (isAnthropic ? true : false),
               video: model.modalities?.input?.includes("video") ?? existingModel?.capabilities.input.video ?? false,
-              pdf: model.modalities?.input?.includes("pdf") ?? existingModel?.capabilities.input.pdf ?? false,
+              pdf: model.modalities?.input?.includes("pdf") ?? existingModel?.capabilities.input.pdf ?? (isAnthropic ? true : false),
             },
             output: {
               text: model.modalities?.output?.includes("text") ?? existingModel?.capabilities.output.text ?? true,
@@ -914,42 +922,35 @@ export namespace Provider {
     }
 
     for (const plugin of await Plugin.list()) {
-      if (!plugin.auth) continue
-      const providerID = plugin.auth.provider
-      if (disabled.has(providerID)) continue
+      const hook = plugin.auth
+      if (!hook?.loader) continue
+      const loader = hook.loader
 
-      // For github-copilot plugin, check if auth exists for either github-copilot or github-copilot-enterprise
-      let hasAuth = false
-      const auth = await Auth.get(providerID)
-      if (auth) hasAuth = true
+      const load = async (providerID: string) => {
+        if (disabled.has(providerID)) return
+        const auth = await Auth.get(providerID)
+        if (!auth) return
 
-      // Special handling for github-copilot: also check for enterprise auth
-      if (providerID === "github-copilot" && !hasAuth) {
-        const enterpriseAuth = await Auth.get("github-copilot-enterprise")
-        if (enterpriseAuth) hasAuth = true
-      }
+        const info = database[providerID]
+        if (!info) return
 
-      if (!hasAuth) continue
-      if (!plugin.auth.loader) continue
-
-      // Load for the main provider if auth exists
-      if (auth) {
-        const options = await plugin.auth.loader(() => Auth.get(providerID) as any, database[plugin.auth.provider])
+        const options = await loader(() => Auth.get(providerID) as any, info)
         const opts = options ?? {}
         const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
         mergeProvider(providerID, patch)
       }
 
-      // If this is github-copilot plugin, also register for github-copilot-enterprise if auth exists
-      if (providerID === "github-copilot") {
+      await load(hook.provider)
+      for (const providerID of aliases(config, hook.provider)) {
+        await load(providerID)
+      }
+
+      if (hook.provider === "github-copilot") {
         const enterpriseProviderID = "github-copilot-enterprise"
         if (!disabled.has(enterpriseProviderID)) {
           const enterpriseAuth = await Auth.get(enterpriseProviderID)
           if (enterpriseAuth) {
-            const enterpriseOptions = await plugin.auth.loader(
-              () => Auth.get(enterpriseProviderID) as any,
-              database[enterpriseProviderID],
-            )
+            const enterpriseOptions = await loader(() => Auth.get(enterpriseProviderID) as any, database[enterpriseProviderID])
             const opts = enterpriseOptions ?? {}
             const patch: Partial<Info> = providers[enterpriseProviderID]
               ? { options: opts }
@@ -974,6 +975,15 @@ export namespace Provider {
         const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
         mergeProvider(providerID, patch)
       }
+    }
+
+    for (const [providerID] of configProviders) {
+      if (disabled.has(providerID)) continue
+      const sourceID = driver(config, providerID)
+      if (sourceID === providerID) continue
+
+      const modelLoader = modelLoaders[sourceID]
+      if (modelLoader) modelLoaders[providerID] = modelLoader
     }
 
     // load config

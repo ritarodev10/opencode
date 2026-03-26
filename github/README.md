@@ -1,3 +1,7 @@
+---
+feature: thumbnails/external/b276131191704b020eeaf10f7d6c27e9.failed.png
+thumbnail: thumbnails/resized/880071ae16fcaa9a24cf3ad08cd70dbe_86cf658e.webp
+---
 # opencode GitHub Action
 
 A GitHub Action that integrates [opencode](https://opencode.ai) directly into your GitHub workflow.

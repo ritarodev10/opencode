@@ -1,18 +1,24 @@
 import { Instance } from "@/project/instance"
 import { Plugin } from "../plugin"
-import { map, filter, pipe, fromEntries, mapValues } from "remeda"
+import { filter, pipe, fromEntries, mapValues, flatMap } from "remeda"
 import z from "zod"
 import { fn } from "@/util/fn"
-import type { AuthOuathResult, Hooks } from "@opencode-ai/plugin"
+import type { AuthOuathResult } from "@opencode-ai/plugin"
 import { NamedError } from "@opencode-ai/util/error"
 import { Auth } from "@/auth"
+import { Config } from "@/config/config"
+import { aliases } from "./auth-alias"
 
 export namespace ProviderAuth {
   const state = Instance.state(async () => {
+    const config = await Config.get()
     const methods = pipe(
       await Plugin.list(),
       filter((x) => x.auth?.provider !== undefined),
-      map((x) => [x.auth!.provider, x.auth!] as const),
+      flatMap((item) => {
+        const auth = item.auth!
+        return [auth.provider, ...aliases(config, auth.provider)].map((id) => [id, auth] as const)
+      }),
       fromEntries(),
     )
     return { methods, pending: {} as Record<string, AuthOuathResult> }
@@ -58,6 +64,7 @@ export namespace ProviderAuth {
     }),
     async (input): Promise<Authorization | undefined> => {
       const auth = await state().then((s) => s.methods[input.providerID])
+      if (!auth) throw new OauthMissing({ providerID: input.providerID })
       const method = auth.methods[input.method]
       if (method.type === "oauth") {
         const result = await method.authorize()
@@ -99,14 +106,13 @@ export namespace ProviderAuth {
           })
         }
         if ("refresh" in result) {
+          const { type: _, provider: __, refresh, access, expires, ...extraFields } = result
           const info: Auth.Info = {
             type: "oauth",
-            access: result.access,
-            refresh: result.refresh,
-            expires: result.expires,
-          }
-          if (result.accountId) {
-            info.accountId = result.accountId
+            access,
+            refresh,
+            expires,
+            ...extraFields,
           }
           await Auth.set(input.providerID, info)
         }

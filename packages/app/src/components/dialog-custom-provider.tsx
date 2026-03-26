@@ -11,6 +11,7 @@ import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
+import { DialogConnectProvider } from "./dialog-connect-provider"
 import { DialogSelectProvider } from "./dialog-select-provider"
 
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-_]*$/
@@ -53,14 +54,11 @@ type ValidateArgs = {
   existingProviderIDs: Set<string>
 }
 
-function validateCustomProvider(input: ValidateArgs) {
+type Template = "openai-compatible" | "github-copilot"
+
+function validateIdentity(input: ValidateArgs) {
   const providerID = input.form.providerID.trim()
   const name = input.form.name.trim()
-  const baseURL = input.form.baseURL.trim()
-  const apiKey = input.form.apiKey.trim()
-
-  const env = apiKey.match(/^\{env:([^}]+)\}$/)?.[1]?.trim()
-  const key = apiKey && !env ? apiKey : undefined
 
   const idError = !providerID
     ? input.t("provider.custom.error.providerID.required")
@@ -68,18 +66,36 @@ function validateCustomProvider(input: ValidateArgs) {
       ? input.t("provider.custom.error.providerID.format")
       : undefined
 
-  const nameError = !name ? input.t("provider.custom.error.name.required") : undefined
-  const urlError = !baseURL
-    ? input.t("provider.custom.error.baseURL.required")
-    : !/^https?:\/\//.test(baseURL)
-      ? input.t("provider.custom.error.baseURL.format")
-      : undefined
-
   const disabled = input.disabledProviders.includes(providerID)
   const existsError = idError
     ? undefined
     : input.existingProviderIDs.has(providerID) && !disabled
       ? input.t("provider.custom.error.providerID.exists")
+      : undefined
+
+  return {
+    providerID,
+    name,
+    errors: {
+      providerID: idError ?? existsError,
+      name: !name ? input.t("provider.custom.error.name.required") : undefined,
+    },
+  }
+}
+
+function validateCustomProvider(input: ValidateArgs) {
+  const identity = validateIdentity(input)
+  const providerID = identity.providerID
+  const name = identity.name
+  const baseURL = input.form.baseURL.trim()
+  const apiKey = input.form.apiKey.trim()
+
+  const env = apiKey.match(/^\{env:([^}]+)\}$/)?.[1]?.trim()
+  const key = apiKey && !env ? apiKey : undefined
+  const urlError = !baseURL
+    ? input.t("provider.custom.error.baseURL.required")
+    : !/^https?:\/\//.test(baseURL)
+      ? input.t("provider.custom.error.baseURL.format")
       : undefined
 
   const seenModels = new Set<string>()
@@ -125,14 +141,14 @@ function validateCustomProvider(input: ValidateArgs) {
   )
 
   const errors: FormErrors = {
-    providerID: idError ?? existsError,
-    name: nameError,
+    providerID: identity.errors.providerID,
+    name: identity.errors.name,
     baseURL: urlError,
     models: modelErrors,
     headers: headerErrors,
   }
 
-  const ok = !idError && !existsError && !nameError && !urlError && modelsValid && headersValid
+  const ok = !identity.errors.providerID && !identity.errors.name && !urlError && modelsValid && headersValid
   if (!ok) return { errors }
 
   const options = {
@@ -157,8 +173,35 @@ function validateCustomProvider(input: ValidateArgs) {
   }
 }
 
+function validateCopilotProvider(input: ValidateArgs) {
+  const identity = validateIdentity(input)
+  const errors: FormErrors = {
+    providerID: identity.errors.providerID,
+    name: identity.errors.name,
+    baseURL: undefined,
+    models: [],
+    headers: [],
+  }
+
+  if (identity.errors.providerID || identity.errors.name) return { errors }
+
+  return {
+    errors,
+    result: {
+      providerID: identity.providerID,
+      name: identity.name,
+      key: undefined,
+      config: {
+        name: identity.name,
+        auth_provider: "github-copilot",
+      },
+    },
+  }
+}
+
 type Props = {
   back?: "providers" | "close"
+  template?: Template
 }
 
 export function DialogCustomProvider(props: Props) {
@@ -167,9 +210,12 @@ export function DialogCustomProvider(props: Props) {
   const globalSDK = useGlobalSDK()
   const language = useLanguage()
 
+  const template = () => props.template ?? "openai-compatible"
+  const isCopilot = () => template() === "github-copilot"
+
   const [form, setForm] = createStore<FormState>({
-    providerID: "",
-    name: "",
+    providerID: isCopilot() ? "github-copilot-2" : "",
+    name: isCopilot() ? "GitHub Copilot 2" : "",
     baseURL: "",
     apiKey: "",
     models: [{ id: "", name: "" }],
@@ -216,7 +262,7 @@ export function DialogCustomProvider(props: Props) {
   }
 
   const validate = () => {
-    const output = validateCustomProvider({
+    const output = (isCopilot() ? validateCopilotProvider : validateCustomProvider)({
       form,
       t: language.t,
       disabledProviders: globalSync.data.config.disabled_providers ?? [],
@@ -250,9 +296,13 @@ export function DialogCustomProvider(props: Props) {
 
     auth
       .then(() =>
-        globalSync.updateConfig({ provider: { [result.providerID]: result.config }, disabled_providers: nextDisabled }),
+        globalSync.updateConfig({ provider: { [result.providerID]: result.config as any }, disabled_providers: nextDisabled }),
       )
       .then(() => {
+        if (isCopilot()) {
+          dialog.show(() => <DialogConnectProvider provider={result.providerID} />)
+          return
+        }
         dialog.close()
         showToast({
           variant: "success",
@@ -285,17 +335,25 @@ export function DialogCustomProvider(props: Props) {
     >
       <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
         <div class="px-2.5 flex gap-4 items-center">
-          <ProviderIcon id="synthetic" class="size-5 shrink-0 icon-strong-base" />
-          <div class="text-16-medium text-text-strong">{language.t("provider.custom.title")}</div>
+          <ProviderIcon id={isCopilot() ? "github-copilot" : "synthetic"} class="size-5 shrink-0 icon-strong-base" />
+          <div class="text-16-medium text-text-strong">
+            {isCopilot() ? "GitHub Copilot (extra account)" : language.t("provider.custom.title")}
+          </div>
         </div>
 
         <form onSubmit={save} class="px-2.5 pb-6 flex flex-col gap-6">
           <p class="text-14-regular text-text-base">
-            {language.t("provider.custom.description.prefix")}
-            <Link href="https://opencode.ai/docs/providers/#custom-provider" tabIndex={-1}>
-              {language.t("provider.custom.description.link")}
-            </Link>
-            {language.t("provider.custom.description.suffix")}
+            {isCopilot() ? (
+              "Create another Copilot provider, then sign in with a different GitHub account."
+            ) : (
+              <>
+                {language.t("provider.custom.description.prefix")}
+                <Link href="https://opencode.ai/docs/providers/#custom-provider" tabIndex={-1}>
+                  {language.t("provider.custom.description.link")}
+                </Link>
+                {language.t("provider.custom.description.suffix")}
+              </>
+            )}
           </p>
 
           <div class="flex flex-col gap-4">
@@ -317,110 +375,118 @@ export function DialogCustomProvider(props: Props) {
               validationState={errors.name ? "invalid" : undefined}
               error={errors.name}
             />
-            <TextField
-              label={language.t("provider.custom.field.baseURL.label")}
-              placeholder={language.t("provider.custom.field.baseURL.placeholder")}
-              value={form.baseURL}
-              onChange={(v) => setForm("baseURL", v)}
-              validationState={errors.baseURL ? "invalid" : undefined}
-              error={errors.baseURL}
-            />
-            <TextField
-              label={language.t("provider.custom.field.apiKey.label")}
-              placeholder={language.t("provider.custom.field.apiKey.placeholder")}
-              description={language.t("provider.custom.field.apiKey.description")}
-              value={form.apiKey}
-              onChange={(v) => setForm("apiKey", v)}
-            />
+            {!isCopilot() && (
+              <>
+                <TextField
+                  label={language.t("provider.custom.field.baseURL.label")}
+                  placeholder={language.t("provider.custom.field.baseURL.placeholder")}
+                  value={form.baseURL}
+                  onChange={(v) => setForm("baseURL", v)}
+                  validationState={errors.baseURL ? "invalid" : undefined}
+                  error={errors.baseURL}
+                />
+                <TextField
+                  label={language.t("provider.custom.field.apiKey.label")}
+                  placeholder={language.t("provider.custom.field.apiKey.placeholder")}
+                  description={language.t("provider.custom.field.apiKey.description")}
+                  value={form.apiKey}
+                  onChange={(v) => setForm("apiKey", v)}
+                />
+              </>
+            )}
           </div>
 
-          <div class="flex flex-col gap-3">
-            <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
-            <For each={form.models}>
-              {(m, i) => (
-                <div class="flex gap-2 items-start">
-                  <div class="flex-1">
-                    <TextField
-                      label={language.t("provider.custom.models.id.label")}
-                      hideLabel
-                      placeholder={language.t("provider.custom.models.id.placeholder")}
-                      value={m.id}
-                      onChange={(v) => setForm("models", i(), "id", v)}
-                      validationState={errors.models[i()]?.id ? "invalid" : undefined}
-                      error={errors.models[i()]?.id}
+          {!isCopilot() && (
+            <div class="flex flex-col gap-3">
+              <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
+              <For each={form.models}>
+                {(m, i) => (
+                  <div class="flex gap-2 items-start">
+                    <div class="flex-1">
+                      <TextField
+                        label={language.t("provider.custom.models.id.label")}
+                        hideLabel
+                        placeholder={language.t("provider.custom.models.id.placeholder")}
+                        value={m.id}
+                        onChange={(v) => setForm("models", i(), "id", v)}
+                        validationState={errors.models[i()]?.id ? "invalid" : undefined}
+                        error={errors.models[i()]?.id}
+                      />
+                    </div>
+                    <div class="flex-1">
+                      <TextField
+                        label={language.t("provider.custom.models.name.label")}
+                        hideLabel
+                        placeholder={language.t("provider.custom.models.name.placeholder")}
+                        value={m.name}
+                        onChange={(v) => setForm("models", i(), "name", v)}
+                        validationState={errors.models[i()]?.name ? "invalid" : undefined}
+                        error={errors.models[i()]?.name}
+                      />
+                    </div>
+                    <IconButton
+                      type="button"
+                      icon="trash"
+                      variant="ghost"
+                      class="mt-1.5"
+                      onClick={() => removeModel(i())}
+                      disabled={form.models.length <= 1}
+                      aria-label={language.t("provider.custom.models.remove")}
                     />
                   </div>
-                  <div class="flex-1">
-                    <TextField
-                      label={language.t("provider.custom.models.name.label")}
-                      hideLabel
-                      placeholder={language.t("provider.custom.models.name.placeholder")}
-                      value={m.name}
-                      onChange={(v) => setForm("models", i(), "name", v)}
-                      validationState={errors.models[i()]?.name ? "invalid" : undefined}
-                      error={errors.models[i()]?.name}
-                    />
-                  </div>
-                  <IconButton
-                    type="button"
-                    icon="trash"
-                    variant="ghost"
-                    class="mt-1.5"
-                    onClick={() => removeModel(i())}
-                    disabled={form.models.length <= 1}
-                    aria-label={language.t("provider.custom.models.remove")}
-                  />
-                </div>
-              )}
-            </For>
-            <Button type="button" size="small" variant="ghost" icon="plus-small" onClick={addModel} class="self-start">
-              {language.t("provider.custom.models.add")}
-            </Button>
-          </div>
+                )}
+              </For>
+              <Button type="button" size="small" variant="ghost" icon="plus-small" onClick={addModel} class="self-start">
+                {language.t("provider.custom.models.add")}
+              </Button>
+            </div>
+          )}
 
-          <div class="flex flex-col gap-3">
-            <label class="text-12-medium text-text-weak">{language.t("provider.custom.headers.label")}</label>
-            <For each={form.headers}>
-              {(h, i) => (
-                <div class="flex gap-2 items-start">
-                  <div class="flex-1">
-                    <TextField
-                      label={language.t("provider.custom.headers.key.label")}
-                      hideLabel
-                      placeholder={language.t("provider.custom.headers.key.placeholder")}
-                      value={h.key}
-                      onChange={(v) => setForm("headers", i(), "key", v)}
-                      validationState={errors.headers[i()]?.key ? "invalid" : undefined}
-                      error={errors.headers[i()]?.key}
+          {!isCopilot() && (
+            <div class="flex flex-col gap-3">
+              <label class="text-12-medium text-text-weak">{language.t("provider.custom.headers.label")}</label>
+              <For each={form.headers}>
+                {(h, i) => (
+                  <div class="flex gap-2 items-start">
+                    <div class="flex-1">
+                      <TextField
+                        label={language.t("provider.custom.headers.key.label")}
+                        hideLabel
+                        placeholder={language.t("provider.custom.headers.key.placeholder")}
+                        value={h.key}
+                        onChange={(v) => setForm("headers", i(), "key", v)}
+                        validationState={errors.headers[i()]?.key ? "invalid" : undefined}
+                        error={errors.headers[i()]?.key}
+                      />
+                    </div>
+                    <div class="flex-1">
+                      <TextField
+                        label={language.t("provider.custom.headers.value.label")}
+                        hideLabel
+                        placeholder={language.t("provider.custom.headers.value.placeholder")}
+                        value={h.value}
+                        onChange={(v) => setForm("headers", i(), "value", v)}
+                        validationState={errors.headers[i()]?.value ? "invalid" : undefined}
+                        error={errors.headers[i()]?.value}
+                      />
+                    </div>
+                    <IconButton
+                      type="button"
+                      icon="trash"
+                      variant="ghost"
+                      class="mt-1.5"
+                      onClick={() => removeHeader(i())}
+                      disabled={form.headers.length <= 1}
+                      aria-label={language.t("provider.custom.headers.remove")}
                     />
                   </div>
-                  <div class="flex-1">
-                    <TextField
-                      label={language.t("provider.custom.headers.value.label")}
-                      hideLabel
-                      placeholder={language.t("provider.custom.headers.value.placeholder")}
-                      value={h.value}
-                      onChange={(v) => setForm("headers", i(), "value", v)}
-                      validationState={errors.headers[i()]?.value ? "invalid" : undefined}
-                      error={errors.headers[i()]?.value}
-                    />
-                  </div>
-                  <IconButton
-                    type="button"
-                    icon="trash"
-                    variant="ghost"
-                    class="mt-1.5"
-                    onClick={() => removeHeader(i())}
-                    disabled={form.headers.length <= 1}
-                    aria-label={language.t("provider.custom.headers.remove")}
-                  />
-                </div>
-              )}
-            </For>
-            <Button type="button" size="small" variant="ghost" icon="plus-small" onClick={addHeader} class="self-start">
-              {language.t("provider.custom.headers.add")}
-            </Button>
-          </div>
+                )}
+              </For>
+              <Button type="button" size="small" variant="ghost" icon="plus-small" onClick={addHeader} class="self-start">
+                {language.t("provider.custom.headers.add")}
+              </Button>
+            </div>
+          )}
 
           <Button class="w-auto self-start" type="submit" size="large" variant="primary" disabled={form.saving}>
             {form.saving ? language.t("common.saving") : language.t("common.submit")}
