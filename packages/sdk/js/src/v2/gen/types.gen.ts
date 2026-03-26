@@ -1210,6 +1210,10 @@ export type ProviderConfig = {
   }
   whitelist?: Array<string>
   blacklist?: Array<string>
+  /**
+   * Reuse auth flow from another provider while storing credentials under this provider ID
+   */
+  auth_provider?: string
   options?: {
     apiKey?: string
     baseURL?: string
