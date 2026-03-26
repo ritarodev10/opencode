@@ -55,7 +55,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["opencode"]
+        "schemes": ["opencode-dev"]
       }
     }
   }

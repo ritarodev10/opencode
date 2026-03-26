@@ -23,6 +23,16 @@ bun run --cwd packages/desktop tauri build
 
 ## Troubleshooting
 
+### OpenCode Dev storage isolation
+
+`OpenCode Dev` uses isolated desktop storage and deep-link ownership so it can run alongside the production app without sharing auth, config, sqlite, or cache state.
+
+- production `OpenCode` keeps using its normal `opencode` storage
+- `OpenCode Dev` uses its own desktop-scoped storage and `opencode-dev://` deep links
+- first launch of `OpenCode Dev` starts with empty auth/config state by design
+
+If you need to reset only the dev app, delete its isolated desktop data/config/cache/state directories. That resets `OpenCode Dev` without touching production state.
+
 ### Rust compiler not found
 
 If you see errors about Rust not being found, install it via [rustup](https://rustup.rs/):

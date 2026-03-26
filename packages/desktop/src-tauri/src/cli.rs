@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager, path::BaseDirectory};
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, BufReader},
@@ -24,6 +24,7 @@ use tracing::Instrument;
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED};
 
+use crate::app_paths;
 use crate::server::get_wsl_config;
 
 #[cfg(windows)]
@@ -363,17 +364,10 @@ fn merge_shell_env(
     merged.into_iter().collect()
 }
 
-pub fn spawn_command(
-    app: &tauri::AppHandle,
-    args: &str,
-    extra_env: &[(&str, String)],
-) -> Result<(impl Stream<Item = CommandEvent> + 'static, CommandChild), std::io::Error> {
-    let state_dir = app
-        .path()
-        .resolve("", BaseDirectory::AppLocalData)
-        .expect("Failed to resolve app local data dir");
+fn app_env(app: &AppHandle) -> Result<Vec<(String, String)>, String> {
+    let paths = app_paths::resolve(app)?;
 
-    let mut envs = vec![
+    Ok(vec![
         (
             "OPENCODE_EXPERIMENTAL_ICON_DISCOVERY".to_string(),
             "true".to_string(),
@@ -382,12 +376,59 @@ pub fn spawn_command(
             "OPENCODE_EXPERIMENTAL_FILEWATCHER".to_string(),
             "true".to_string(),
         ),
-        ("OPENCODE_CLIENT".to_string(), "desktop".to_string()),
+        ("OPENCODE_CLIENT".to_string(), "desktop-dev".to_string()),
+        ("XDG_DATA_HOME".to_string(), paths.data.to_string_lossy().to_string()),
+        (
+            "XDG_CONFIG_HOME".to_string(),
+            paths.config.to_string_lossy().to_string(),
+        ),
+        (
+            "XDG_CACHE_HOME".to_string(),
+            paths.cache.to_string_lossy().to_string(),
+        ),
         (
             "XDG_STATE_HOME".to_string(),
-            state_dir.to_string_lossy().to_string(),
+            paths.state.to_string_lossy().to_string(),
         ),
-    ];
+    ])
+}
+
+fn wsl_env() -> Vec<(String, String)> {
+    vec![
+        (
+            "OPENCODE_EXPERIMENTAL_ICON_DISCOVERY".to_string(),
+            "true".to_string(),
+        ),
+        (
+            "OPENCODE_EXPERIMENTAL_FILEWATCHER".to_string(),
+            "true".to_string(),
+        ),
+        ("OPENCODE_CLIENT".to_string(), "desktop-dev".to_string()),
+        (
+            "XDG_DATA_HOME".to_string(),
+            "$HOME/.local/share/opencode-dev".to_string(),
+        ),
+        (
+            "XDG_CONFIG_HOME".to_string(),
+            "$HOME/.config/opencode-dev".to_string(),
+        ),
+        (
+            "XDG_CACHE_HOME".to_string(),
+            "$HOME/.cache/opencode-dev".to_string(),
+        ),
+        (
+            "XDG_STATE_HOME".to_string(),
+            "$HOME/.local/state/opencode-dev".to_string(),
+        ),
+    ]
+}
+
+pub fn spawn_command(
+    app: &tauri::AppHandle,
+    args: &str,
+    extra_env: &[(&str, String)],
+) -> Result<(impl Stream<Item = CommandEvent> + 'static, CommandChild), std::io::Error> {
+    let mut envs = app_env(app).map_err(std::io::Error::other)?;
     envs.extend(
         extra_env
             .iter()
@@ -409,17 +450,18 @@ pub fn spawn_command(
                 "fi".to_string(),
             ];
 
-            let mut env_prefix = vec![
-                "OPENCODE_EXPERIMENTAL_ICON_DISCOVERY=true".to_string(),
-                "OPENCODE_EXPERIMENTAL_FILEWATCHER=true".to_string(),
-                "OPENCODE_CLIENT=desktop".to_string(),
-                "XDG_STATE_HOME=\"$HOME/.local/state\"".to_string(),
-            ];
+            let mut env_prefix = wsl_env()
+                .into_iter()
+                .map(|(key, value)| format!("{}={}", key, shell_escape(&value)))
+                .collect::<Vec<_>>();
             env_prefix.extend(
                 envs.iter()
                     .filter(|(key, _)| key != "OPENCODE_EXPERIMENTAL_ICON_DISCOVERY")
                     .filter(|(key, _)| key != "OPENCODE_EXPERIMENTAL_FILEWATCHER")
                     .filter(|(key, _)| key != "OPENCODE_CLIENT")
+                    .filter(|(key, _)| key != "XDG_DATA_HOME")
+                    .filter(|(key, _)| key != "XDG_CONFIG_HOME")
+                    .filter(|(key, _)| key != "XDG_CACHE_HOME")
                     .filter(|(key, _)| key != "XDG_STATE_HOME")
                     .map(|(key, value)| format!("{}={}", key, shell_escape(value))),
             );
@@ -720,7 +762,7 @@ mod tests {
             Some(shell_env),
             vec![
                 ("PATH".to_string(), "/desktop/path".to_string()),
-                ("OPENCODE_CLIENT".to_string(), "desktop".to_string()),
+                ("OPENCODE_CLIENT".to_string(), "desktop-dev".to_string()),
             ],
         )
         .into_iter()
@@ -728,7 +770,29 @@ mod tests {
 
         assert_eq!(merged.get("PATH"), Some(&"/desktop/path".to_string()));
         assert_eq!(merged.get("HOME"), Some(&"/tmp/home".to_string()));
-        assert_eq!(merged.get("OPENCODE_CLIENT"), Some(&"desktop".to_string()));
+        assert_eq!(merged.get("OPENCODE_CLIENT"), Some(&"desktop-dev".to_string()));
+    }
+
+    #[test]
+    fn merge_shell_env_keeps_isolated_xdg_roots() {
+        let merged = merge_shell_env(
+            Some(HashMap::from([("HOME".to_string(), "/tmp/home".to_string())])),
+            vec![
+                ("XDG_DATA_HOME".to_string(), "/tmp/dev-data".to_string()),
+                ("XDG_CONFIG_HOME".to_string(), "/tmp/dev-config".to_string()),
+                ("XDG_CACHE_HOME".to_string(), "/tmp/dev-cache".to_string()),
+                ("XDG_STATE_HOME".to_string(), "/tmp/dev-state".to_string()),
+                ("OPENCODE_CLIENT".to_string(), "desktop-dev".to_string()),
+            ],
+        )
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+        assert_eq!(merged.get("XDG_DATA_HOME"), Some(&"/tmp/dev-data".to_string()));
+        assert_eq!(merged.get("XDG_CONFIG_HOME"), Some(&"/tmp/dev-config".to_string()));
+        assert_eq!(merged.get("XDG_CACHE_HOME"), Some(&"/tmp/dev-cache".to_string()));
+        assert_eq!(merged.get("XDG_STATE_HOME"), Some(&"/tmp/dev-state".to_string()));
+        assert_eq!(merged.get("OPENCODE_CLIENT"), Some(&"desktop-dev".to_string()));
     }
 
     #[test]

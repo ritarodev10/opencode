@@ -1,3 +1,4 @@
+mod app_paths;
 mod cli;
 mod constants;
 #[cfg(target_os = "linux")]
@@ -16,14 +17,7 @@ use futures::{
     FutureExt, TryFutureExt,
     future::{self, Shared},
 };
-use std::{
-    env,
-    net::TcpListener,
-    path::PathBuf,
-    process::Command,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{net::TcpListener, path::PathBuf, process::Command, sync::{Arc, Mutex}, time::Duration};
 use tauri::{AppHandle, Listener, Manager, RunEvent, State, ipc::Channel};
 #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -453,10 +447,10 @@ async fn initialize(app: AppHandle) {
     // come from any invocation of the sidecar CLI. The progress is captured by a stdout stream interceptor.
     // Then in the loading task, we wait for sqlite migration to complete before
     // starting our health check against the server, otherwise long migrations could result in a timeout.
-    let needs_sqlite_migration = !sqlite_file_exists();
+    let needs_sqlite_migration = !sqlite_file_exists(&app);
     let sqlite_done = needs_sqlite_migration.then(|| {
         tracing::info!(
-            path = %opencode_db_path().expect("failed to get db path").display(),
+            path = %opencode_db_path(&app).expect("failed to get db path").display(),
             "Sqlite file not found, waiting for it to be generated"
         );
 
@@ -678,26 +672,16 @@ fn get_sidecar_port() -> u32 {
         }) as u32
 }
 
-fn sqlite_file_exists() -> bool {
-    let Ok(path) = opencode_db_path() else {
+fn sqlite_file_exists(app: &AppHandle) -> bool {
+    let Ok(path) = opencode_db_path(app) else {
         return true;
     };
 
     path.exists()
 }
 
-fn opencode_db_path() -> Result<PathBuf, &'static str> {
-    let xdg_data_home = env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty());
-
-    let data_home = match xdg_data_home {
-        Some(v) => PathBuf::from(v),
-        None => {
-            let home = dirs::home_dir().ok_or("cannot determine home directory")?;
-            home.join(".local").join("share")
-        }
-    };
-
-    Ok(data_home.join("opencode").join("opencode.db"))
+fn opencode_db_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_paths::resolve(app)?.data.join("opencode").join("opencode.db"))
 }
 
 // Creates a `once` listener for the specified event and returns a future that resolves

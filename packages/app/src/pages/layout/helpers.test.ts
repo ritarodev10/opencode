@@ -27,8 +27,13 @@ describe("layout deep links", () => {
     expect(parseDeepLink("opencode://open-project?directory=/tmp/demo")).toBe("/tmp/demo")
   })
 
+  test("parses dev open-project deep links", () => {
+    expect(parseDeepLink("opencode-dev://open-project?directory=/tmp/demo")).toBe("/tmp/demo")
+  })
+
   test("ignores non-project deep links", () => {
     expect(parseDeepLink("opencode://other?directory=/tmp/demo")).toBeUndefined()
+    expect(parseDeepLink("opencode-dev://other?directory=/tmp/demo")).toBeUndefined()
     expect(parseDeepLink("https://example.com")).toBeUndefined()
   })
 
@@ -56,10 +61,11 @@ describe("layout deep links", () => {
   test("collects only valid open-project directories", () => {
     const result = collectOpenProjectDeepLinks([
       "opencode://open-project?directory=/a",
+      "opencode-dev://open-project?directory=/b",
       "opencode://other?directory=/b",
       "opencode://open-project?directory=/c",
     ])
-    expect(result).toEqual(["/a", "/c"])
+    expect(result).toEqual(["/a", "/b", "/c"])
   })
 
   test("drains global deep links once", () => {

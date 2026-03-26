@@ -43,6 +43,7 @@ export function DialogConnectProvider(props: { provider: string }) {
     }
     return found
   })
+  const providerName = createMemo(() => provider()?.name ?? props.provider)
   const methods = createMemo(
     () =>
       globalSync.data.provider_auth[props.provider] ?? [
@@ -190,8 +191,8 @@ export function DialogConnectProvider(props: { provider: string }) {
     showToast({
       variant: "success",
       icon: "circle-check",
-      title: language.t("provider.connect.toast.connected.title", { provider: provider()?.name }),
-      description: language.t("provider.connect.toast.connected.description", { provider: provider()?.name }),
+      title: language.t("provider.connect.toast.connected.title", { provider: providerName() }),
+      description: language.t("provider.connect.toast.connected.description", { provider: providerName() }),
     })
   }
 
@@ -215,7 +216,7 @@ export function DialogConnectProvider(props: { provider: string }) {
     return (
       <>
         <div class="text-14-regular text-text-base">
-          {language.t("provider.connect.selectMethod", { provider: provider()?.name })}
+          {language.t("provider.connect.selectMethod", { provider: providerName() })}
         </div>
         <div>
           <List
@@ -290,7 +291,7 @@ export function DialogConnectProvider(props: { provider: string }) {
           </Match>
           <Match when={provider()}>
             <div class="text-14-regular text-text-base">
-              {language.t("provider.connect.apiKey.description", { provider: provider()?.name })}
+              {language.t("provider.connect.apiKey.description", { provider: providerName() })}
             </div>
           </Match>
         </Switch>
@@ -298,7 +299,7 @@ export function DialogConnectProvider(props: { provider: string }) {
           <TextField
             autofocus
             type="text"
-            label={language.t("provider.connect.apiKey.label", { provider: provider()?.name })}
+            label={language.t("provider.connect.apiKey.label", { provider: providerName() })}
             placeholder={language.t("provider.connect.apiKey.placeholder")}
             name="apiKey"
             value={formStore.value}
@@ -359,7 +360,7 @@ export function DialogConnectProvider(props: { provider: string }) {
         <div class="text-14-regular text-text-base">
           {language.t("provider.connect.oauth.code.visit.prefix")}
           <Link href={store.authorization!.url}>{language.t("provider.connect.oauth.code.visit.link")}</Link>
-          {language.t("provider.connect.oauth.code.visit.suffix", { provider: provider()?.name })}
+          {language.t("provider.connect.oauth.code.visit.suffix", { provider: providerName() })}
         </div>
         <form onSubmit={handleSubmit} class="flex flex-col items-start gap-4">
           <TextField
@@ -421,7 +422,7 @@ export function DialogConnectProvider(props: { provider: string }) {
         <div class="text-14-regular text-text-base">
           {language.t("provider.connect.oauth.auto.visit.prefix")}
           <Link href={store.authorization!.url}>{language.t("provider.connect.oauth.auto.visit.link")}</Link>
-          {language.t("provider.connect.oauth.auto.visit.suffix", { provider: provider()?.name })}
+          {language.t("provider.connect.oauth.auto.visit.suffix", { provider: providerName() })}
         </div>
         <TextField
           label={language.t("provider.connect.oauth.auto.confirmationCode")}
@@ -458,7 +459,7 @@ export function DialogConnectProvider(props: { provider: string }) {
               <Match when={props.provider === "anthropic" && method()?.label?.toLowerCase().includes("max")}>
                 {language.t("provider.connect.title.anthropicProMax")}
               </Match>
-              <Match when={true}>{language.t("provider.connect.title", { provider: provider()?.name })}</Match>
+              <Match when={true}>{language.t("provider.connect.title", { provider: providerName() })}</Match>
             </Switch>
           </div>
         </div>
