@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import path from "path"
 import type { ModelMessage } from "ai"
 import { LLM } from "../../src/session/llm"
-import { Global } from "../../src/global"
+import { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { ProviderTransform } from "../../src/provider/transform"
@@ -11,6 +11,7 @@ import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { Agent } from "../../src/agent/agent"
 import type { MessageV2 } from "../../src/session/message-v2"
+import { Auth } from "../../src/auth"
 
 describe("session.llm.hasToolCalls", () => {
   test("returns false for empty messages array", () => {
@@ -439,6 +440,46 @@ describe("session.llm.stream", () => {
         const maxTokens = body.max_output_tokens as number | undefined
         const expectedMaxTokens = ProviderTransform.maxOutputTokens(resolved)
         expect(maxTokens).toBe(expectedMaxTokens)
+      },
+    })
+  })
+
+  test("treats auth_provider openai aliases as codex oauth sessions", async () => {
+    await Auth.set("chatgpt-work", {
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+      accountId: "acct-work",
+    })
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            provider: {
+              "chatgpt-work": {
+                name: "ChatGPT Work",
+                auth_provider: "openai",
+              },
+            },
+          }),
+        )
+      },
+      dispose: async () => {
+        await Auth.remove("chatgpt-work")
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const cfg = await Config.get()
+        const auth = await Auth.get("chatgpt-work")
+        expect(LLM.usesCodex(cfg, "chatgpt-work", auth ?? undefined)).toBe(true)
+        expect(LLM.usesCodex(cfg, "chatgpt-work", { type: "api" })).toBe(false)
       },
     })
   })

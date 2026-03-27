@@ -78,6 +78,28 @@ test("parses provider auth_provider alias", async () => {
   })
 })
 
+test("parses openai provider auth_provider alias", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(dir, {
+        $schema: "https://opencode.ai/config.json",
+        provider: {
+          "openai-2": {
+            auth_provider: "openai",
+          },
+        },
+      })
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(config.provider?.["openai-2"]?.auth_provider).toBe("openai")
+    },
+  })
+})
+
 test("ignores legacy tui keys in opencode config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

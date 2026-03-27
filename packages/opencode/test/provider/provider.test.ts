@@ -9,6 +9,7 @@ import { Auth } from "../../src/auth"
 
 afterEach(async () => {
   await Auth.remove("github-copilot-work")
+  await Auth.remove("chatgpt-work")
 })
 
 test("provider loaded from env variable", async () => {
@@ -291,6 +292,53 @@ test("custom provider can reuse auth_provider loader", async () => {
       const model = await Provider.getModel("github-copilot-work", "gpt-5")
       const language = await Provider.getLanguage(model)
       expect(language).toBeDefined()
+    },
+  })
+})
+
+test("openai alias can reuse auth_provider loader", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              options: {
+                baseURL: "https://example.com/v1",
+              },
+            },
+            "chatgpt-work": {
+              name: "ChatGPT Work",
+              auth_provider: "openai",
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Auth.set("chatgpt-work", {
+    type: "oauth",
+    refresh: "refresh-token",
+    access: "access-token",
+    expires: Date.now() + 60_000,
+    accountId: "acct-work",
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await Provider.list()
+      expect(providers["chatgpt-work"]).toBeDefined()
+      expect(providers["chatgpt-work"].options.apiKey).toBeDefined()
+      expect(providers["chatgpt-work"].options.baseURL).toBe("https://example.com/v1")
+      expect(typeof providers["chatgpt-work"].options.fetch).toBe("function")
+
+      const model = await Provider.getModel("chatgpt-work", "gpt-5.2")
+      expect(model.providerID).toBe("chatgpt-work")
+      expect(model.api.id).toBe("gpt-5.2")
     },
   })
 })

@@ -163,4 +163,40 @@ describe("resolvePluginProviders", () => {
     })
     expect(result).toBe(hook)
   })
+
+  test("includes configured openai auth aliases", () => {
+    const result = resolvePluginProviders({
+      hooks: [hookWithAuth("openai")],
+      existingProviders: {},
+      disabled: new Set(),
+      providerNames: { "openai-2": "OpenAI 2" },
+      config: {
+        provider: {
+          "openai-2": {
+            auth_provider: "openai",
+          },
+        },
+      } as any,
+    })
+    expect(result).toEqual([
+      { id: "openai", name: "openai" },
+      { id: "openai-2", name: "OpenAI 2" },
+    ])
+  })
+
+  test("resolves openai plugin auth through configured alias", () => {
+    const hook = hookWithAuth("openai")
+    const result = resolvePluginAuth({
+      hooks: [hook],
+      provider: "openai-2",
+      config: {
+        provider: {
+          "openai-2": {
+            auth_provider: "openai",
+          },
+        },
+      } as any,
+    })
+    expect(result).toBe(hook)
+  })
 })
