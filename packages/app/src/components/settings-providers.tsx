@@ -19,7 +19,7 @@ const PROVIDER_NOTES = [
   { match: (id: string) => id === "opencode", key: "dialog.provider.opencode.note" },
   { match: (id: string) => id === "anthropic", key: "dialog.provider.anthropic.note" },
   { match: (id: string) => id.startsWith("github-copilot"), key: "dialog.provider.copilot.note" },
-  { match: (id: string) => id === "openai", key: "dialog.provider.openai.note" },
+  { match: (id: string) => id.startsWith("openai"), key: "dialog.provider.openai.note" },
   { match: (id: string) => id === "google", key: "dialog.provider.google.note" },
   { match: (id: string) => id === "openrouter", key: "dialog.provider.openrouter.note" },
   { match: (id: string) => id === "vercel", key: "dialog.provider.vercel.note" },
@@ -83,6 +83,7 @@ export const SettingsProviders: Component = () => {
   }
 
   const hasCopilot = createMemo(() => providers.all().some((item) => item.id === "github-copilot"))
+  const hasOpenAI = createMemo(() => providers.all().some((item) => item.id === "openai"))
 
   const disableProvider = async (providerID: string, name: string) => {
     const before = globalSync.data.config.disabled_providers ?? []
@@ -265,6 +266,31 @@ export const SettingsProviders: Component = () => {
                   icon="plus-small"
                   onClick={() => {
                     dialog.show(() => <DialogCustomProvider back="close" template="github-copilot" />)
+                  }}
+                >
+                  {language.t("common.connect")}
+                </Button>
+              </div>
+            </Show>
+
+            <Show when={hasOpenAI()}>
+              <div class="flex items-center justify-between gap-4 min-h-16 border-b border-border-weak-base last:border-none flex-wrap py-3">
+                <div class="flex flex-col min-w-0">
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <ProviderIcon id="openai" class="size-5 shrink-0 icon-strong-base" />
+                    <span class="text-14-medium text-text-strong">OpenAI (extra account)</span>
+                    <Tag>{language.t("settings.providers.tag.custom")}</Tag>
+                  </div>
+                  <span class="text-12-regular text-text-weak pl-8">
+                    Create a second OpenAI provider and sign in with another ChatGPT account.
+                  </span>
+                </div>
+                <Button
+                  size="large"
+                  variant="secondary"
+                  icon="plus-small"
+                  onClick={() => {
+                    dialog.show(() => <DialogCustomProvider back="close" template="openai" />)
                   }}
                 >
                   {language.t("common.connect")}

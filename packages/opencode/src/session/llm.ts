@@ -22,10 +22,15 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
+import { driver } from "@/provider/auth-alias"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
   export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
+
+  export function usesCodex(cfg: Awaited<ReturnType<typeof Config.get>>, providerID: string, auth?: { type?: string }) {
+    return driver(cfg, providerID) === "openai" && auth?.type === "oauth"
+  }
 
   export type StreamInput = {
     user: MessageV2.User
@@ -62,7 +67,7 @@ export namespace LLM {
       Provider.getProvider(input.model.providerID),
       Auth.get(input.model.providerID),
     ])
-    const isCodex = provider.id === "openai" && auth?.type === "oauth"
+    const isCodex = usesCodex(cfg, input.model.providerID, auth)
 
     const system = []
     system.push(

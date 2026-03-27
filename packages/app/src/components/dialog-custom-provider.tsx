@@ -54,7 +54,7 @@ type ValidateArgs = {
   existingProviderIDs: Set<string>
 }
 
-type Template = "openai-compatible" | "github-copilot"
+type Template = "openai-compatible" | "github-copilot" | "openai"
 
 function validateIdentity(input: ValidateArgs) {
   const providerID = input.form.providerID.trim()
@@ -199,6 +199,32 @@ function validateCopilotProvider(input: ValidateArgs) {
   }
 }
 
+function validateOpenAIProvider(input: ValidateArgs) {
+  const identity = validateIdentity(input)
+  const errors: FormErrors = {
+    providerID: identity.errors.providerID,
+    name: identity.errors.name,
+    baseURL: undefined,
+    models: [],
+    headers: [],
+  }
+
+  if (identity.errors.providerID || identity.errors.name) return { errors }
+
+  return {
+    errors,
+    result: {
+      providerID: identity.providerID,
+      name: identity.name,
+      key: undefined,
+      config: {
+        name: identity.name,
+        auth_provider: "openai",
+      },
+    },
+  }
+}
+
 type Props = {
   back?: "providers" | "close"
   template?: Template
@@ -212,10 +238,12 @@ export function DialogCustomProvider(props: Props) {
 
   const template = () => props.template ?? "openai-compatible"
   const isCopilot = () => template() === "github-copilot"
+  const isOpenAI = () => template() === "openai"
+  const isAlias = () => isCopilot() || isOpenAI()
 
   const [form, setForm] = createStore<FormState>({
-    providerID: isCopilot() ? "github-copilot-2" : "",
-    name: isCopilot() ? "GitHub Copilot 2" : "",
+    providerID: isCopilot() ? "github-copilot-2" : isOpenAI() ? "openai-2" : "",
+    name: isCopilot() ? "GitHub Copilot 2" : isOpenAI() ? "OpenAI 2" : "",
     baseURL: "",
     apiKey: "",
     models: [{ id: "", name: "" }],
@@ -262,7 +290,7 @@ export function DialogCustomProvider(props: Props) {
   }
 
   const validate = () => {
-    const output = (isCopilot() ? validateCopilotProvider : validateCustomProvider)({
+    const output = (isCopilot() ? validateCopilotProvider : isOpenAI() ? validateOpenAIProvider : validateCustomProvider)({
       form,
       t: language.t,
       disabledProviders: globalSync.data.config.disabled_providers ?? [],
@@ -299,7 +327,7 @@ export function DialogCustomProvider(props: Props) {
         globalSync.updateConfig({ provider: { [result.providerID]: result.config as any }, disabled_providers: nextDisabled }),
       )
       .then(() => {
-        if (isCopilot()) {
+        if (isAlias()) {
           dialog.show(() => <DialogConnectProvider provider={result.providerID} />)
           return
         }
@@ -335,9 +363,13 @@ export function DialogCustomProvider(props: Props) {
     >
       <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
         <div class="px-2.5 flex gap-4 items-center">
-          <ProviderIcon id={isCopilot() ? "github-copilot" : "synthetic"} class="size-5 shrink-0 icon-strong-base" />
+          <ProviderIcon id={isCopilot() ? "github-copilot" : isOpenAI() ? "openai" : "synthetic"} class="size-5 shrink-0 icon-strong-base" />
           <div class="text-16-medium text-text-strong">
-            {isCopilot() ? "GitHub Copilot (extra account)" : language.t("provider.custom.title")}
+            {isCopilot()
+              ? "GitHub Copilot (extra account)"
+              : isOpenAI()
+                ? "OpenAI (extra account)"
+                : language.t("provider.custom.title")}
           </div>
         </div>
 
@@ -345,6 +377,8 @@ export function DialogCustomProvider(props: Props) {
           <p class="text-14-regular text-text-base">
             {isCopilot() ? (
               "Create another Copilot provider, then sign in with a different GitHub account."
+            ) : isOpenAI() ? (
+              "Create another OpenAI provider, then sign in with a different ChatGPT account."
             ) : (
               <>
                 {language.t("provider.custom.description.prefix")}
@@ -375,7 +409,7 @@ export function DialogCustomProvider(props: Props) {
               validationState={errors.name ? "invalid" : undefined}
               error={errors.name}
             />
-            {!isCopilot() && (
+            {!isAlias() && (
               <>
                 <TextField
                   label={language.t("provider.custom.field.baseURL.label")}
@@ -396,7 +430,7 @@ export function DialogCustomProvider(props: Props) {
             )}
           </div>
 
-          {!isCopilot() && (
+          {!isAlias() && (
             <div class="flex flex-col gap-3">
               <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
               <For each={form.models}>
@@ -442,7 +476,7 @@ export function DialogCustomProvider(props: Props) {
             </div>
           )}
 
-          {!isCopilot() && (
+          {!isAlias() && (
             <div class="flex flex-col gap-3">
               <label class="text-12-medium text-text-weak">{language.t("provider.custom.headers.label")}</label>
               <For each={form.headers}>

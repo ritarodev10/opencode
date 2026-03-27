@@ -12,6 +12,7 @@ export const ProviderIcon: Component<ProviderIconProps> = (props) => {
   const resolved = createMemo(() => {
     if (iconNames.includes(local.id as IconName)) return local.id
     if (local.id.startsWith("github-copilot")) return "github-copilot"
+    if (local.id.startsWith("openai")) return "openai"
     return "synthetic"
   })
   return (
